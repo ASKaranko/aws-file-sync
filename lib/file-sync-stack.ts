@@ -41,8 +41,8 @@ export class FileSyncStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY
     });
 
-    const fileProcessorLogGroup = new LogGroup(this, 'FileProcessorLogGroup', {
-      logGroupName: `/aws/lambda/${stage}-file-processor`,
+    const fileProcessorLogGroup = new LogGroup(this, 'FileSyncProcessorLogGroup', {
+      logGroupName: `/aws/lambda/${stage}-file-sync-processor`,
       retention: RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.DESTROY
     });
@@ -64,8 +64,8 @@ export class FileSyncStack extends Stack {
       logGroup: fileSyncCreateRouterLogGroup
     });
 
-    const fileProcessorLambda = new NodejsFunction(this, 'FileProcessorLambda', {
-      functionName: `${stage}-file-processor`,
+    const fileProcessorLambda = new NodejsFunction(this, 'FileSyncProcessorLambda', {
+      functionName: `${stage}-file-sync-processor`,
       runtime: Runtime.NODEJS_22_X,
       architecture: Architecture.X86_64,
       entry: path.join(__dirname, '../lambda/transfer/file-processor.js'),
@@ -127,7 +127,7 @@ export class FileSyncStack extends Stack {
       deliveryDelay: Duration.seconds(0),
       visibilityTimeout: Duration.seconds(270), // best practice is greater that 6 × function timeout
       receiveMessageWaitTime: Duration.seconds(20),
-      retentionPeriod: Duration.minutes(5),
+      retentionPeriod: Duration.days(1),
       maxMessageSizeBytes: 262144, // 256KB
       deadLetterQueue: {
         queue: fileSyncDLQ,
@@ -141,7 +141,7 @@ export class FileSyncStack extends Stack {
 
     // Grant the Lambda function permission to send messages to the queue
     fileSyncQueue.grantSendMessages(fileSyncCreateRouterLambda);
-    fileSyncCreateRouterLambda.addEnvironment('FILE_SYNC_QUEUE_URL', fileSyncQueue.queueUrl);
+    fileSyncCreateRouterLambda.addEnvironment('FILE_SYNC_SQS_URL', fileSyncQueue.queueUrl);
 
     fileProcessorLambda.addEventSource(
       new SqsEventSource(fileSyncQueue, {
