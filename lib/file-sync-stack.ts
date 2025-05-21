@@ -1,4 +1,4 @@
-import { Stack, StackProps, CfnOutput, Tags, RemovalPolicy, Duration } from 'aws-cdk-lib';
+import { Stack, StackProps, CfnOutput, Tags, RemovalPolicy, Duration, SecretValue } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
@@ -25,6 +25,12 @@ export class FileSyncStack extends Stack {
     super(scope, id, props);
 
     const stage = props.stage || 'dev';
+
+    const sandboxDomain = 'https://emortgage--orisa.sandbox.my.salesforce.com';
+    const productionDomain = 'https://emortgage.my.salesforce.com';
+    const lendingPadAPI = 'https://api.lendingpad.com';
+    const secretStoreNameForSFExtClientAppCreds = `${stage}/salesforce/sf-ext-client-app-creds`;
+    const secretStoreNameForProdLP = 'prod/lendingPad/api-key';
 
     new CfnOutput(this, 'Stage', {
       value: stage,
@@ -72,7 +78,20 @@ export class FileSyncStack extends Stack {
       handler: 'handler',
       memorySize: 512,
       timeout: Duration.seconds(45),
-      logGroup: fileProcessorLogGroup
+      logGroup: fileProcessorLogGroup,
+      environment: {
+        SALESFORCE_CLIENT_ID: SecretValue.secretsManager(`${secretStoreNameForSFExtClientAppCreds}`, {
+          jsonField: 'client_id'
+        }).unsafeUnwrap(),
+        SALESFORCE_CLIENT_SECRET: SecretValue.secretsManager(`${secretStoreNameForSFExtClientAppCreds}`, {
+          jsonField: 'client_secret'
+        }).unsafeUnwrap(),
+        SALESFORCE_DOMAIN: stage === 'prod' ? productionDomain : sandboxDomain,
+        LENDING_PAD_API_URL: lendingPadAPI,
+        LENDING_PAD_API_KEY: SecretValue.secretsManager(`${secretStoreNameForProdLP}`, {
+          jsonField: 'api_key'
+        }).unsafeUnwrap()
+      }
     });
 
     const api = new LambdaRestApi(this, 'FileSyncApi', {
@@ -147,7 +166,7 @@ export class FileSyncStack extends Stack {
       new SqsEventSource(fileSyncQueue, {
         batchSize: 1,
         maxBatchingWindow: Duration.seconds(0),
-        maxConcurrency: 8,
+        maxConcurrency: 10,
         reportBatchItemFailures: true
       })
     );
