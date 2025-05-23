@@ -79,9 +79,6 @@ async function uploadFile(fileMessage, bufferData) {
     console.log('Starting upload to LendingPad...');
     console.log('Buffer size:', bufferData.length, 'bytes');
 
-    // Convert to Base64 if LendingPad expects it
-    const base64Content = bufferData.toString('base64');
-
     // Create form with Node.js form-data
     const form = new FormData();
     form.append('company', fileMessage.lendingPadCompany);
@@ -89,11 +86,11 @@ async function uploadFile(fileMessage, bufferData) {
     form.append('loan', fileMessage.lendingPadId);
     form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
 
-    // Fix: Set correct content type for PDF
-    form.append('file', base64Content, {
+    // Send the actual binary buffer, NOT Base64 string
+    form.append('file', bufferData, {
       filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
-      contentType: 'application/pdf',  // Changed from 'text/plain'
-      knownLength: base64Content.length
+      contentType: 'application/pdf',  // Correct MIME type for PDF
+      knownLength: bufferData.length   // Use buffer length, not Base64 length
     });
 
     console.log('Getting form buffer...');
