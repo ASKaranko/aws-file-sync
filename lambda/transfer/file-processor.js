@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
-import FormData from 'form-data';
-import axios from 'axios';
+// import FormData from 'form-data'; for LP
+// import axios from 'axios'; for LP
 
 export const handler = async (event) => {
   console.info('Received SQS event:', JSON.stringify(event, null, 2));
@@ -27,7 +27,7 @@ export const handler = async (event) => {
     throw error;
   }
 
-  await uploadFile(fileMessage, sfReadable);
+  //await uploadFileToLP(fileMessage, sfReadable);
   console.info('File uploaded to S3 and LendingPad ');
 };
 
@@ -68,62 +68,51 @@ async function downloadFile(authToken, instanceURL, contentVersionId) {
     throw new Error(`Failed to download file from Salesforce: ${response.status} ${response.statusText}`);
   }
 
-  console.log('SF response headers:', response.headers);
-  console.log('SF Content-Type:', response.headers.get('content-type'));
-  console.log('SF Content-Length:', response.headers.get('content-length'));
-
   // Get the binary data as ArrayBuffer
   const arrayBuffer = await response.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   
-  // Debug the buffer content
-  console.log('ArrayBuffer size:', arrayBuffer.byteLength);
-  console.log('Buffer size:', buffer.length);
-  console.log('First 10 bytes as hex:', buffer.slice(0, 10).toString('hex'));
-  console.log('First 10 bytes as string:', buffer.slice(0, 10).toString());
-  console.log('Is PDF? (starts with %PDF):', buffer.slice(0, 4).toString() === '%PDF');
-  
   return buffer;
 }
 
-async function uploadFile(fileMessage, bufferData) {
-  try {
-    console.log('Starting upload to LendingPad...');
-    console.log('Buffer size:', bufferData.length, 'bytes');
+// async function uploadFileToLP(fileMessage, bufferData) {
+//   try {
+//     console.log('Starting upload to LendingPad...');
+//     console.log('Buffer size:', bufferData.length, 'bytes');
 
-    // Create form with Node.js form-data
-    const form = new FormData();
-    form.append('company', fileMessage.lendingPadCompany);
-    form.append('contact', fileMessage.lendingPadContact);
-    form.append('loan', fileMessage.lendingPadId);
-    form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
+//     // Create form with Node.js form-data
+//     const form = new FormData();
+//     form.append('company', fileMessage.lendingPadCompany);
+//     form.append('contact', fileMessage.lendingPadContact);
+//     form.append('loan', fileMessage.lendingPadId);
+//     form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
 
-    // Send the binary buffer directly
-    form.append('file', bufferData, {
-      filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
-      contentType: 'application/pdf',
-      knownLength: bufferData.length
-    });
+//     // Send the binary buffer directly
+//     form.append('file', bufferData, {
+//       filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
+//       contentType: 'application/pdf',
+//       knownLength: bufferData.length
+//     });
 
-    const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
+//     const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
 
-    // Use axios instead of fetch for form-data streams
-    const response = await axios.post(url, form, {
-      headers: {
-        'Authorization': `Bearer ${process.env.LENDING_PAD_API_KEY}`,
-        ...form.getHeaders()  // Let form-data set correct headers
-      },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity
-    });
+//     // Use axios instead of fetch for form-data streams
+//     const response = await axios.post(url, form, {
+//       headers: {
+//         'Authorization': `Bearer ${process.env.LENDING_PAD_API_KEY}`,
+//         ...form.getHeaders()  // Let form-data set correct headers
+//       },
+//       maxContentLength: Infinity,
+//       maxBodyLength: Infinity
+//     });
 
-    console.log('LP Response status:', response.status);
-    console.log('LP Response data:', response.data);
+//     console.log('LP Response status:', response.status);
+//     console.log('LP Response data:', response.data);
 
-    console.info('File uploaded to LendingPad:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error uploading file:', error);
-    throw error;
-  }
-}
+//     console.info('File uploaded to LendingPad:', response.data);
+//     return response.data;
+//   } catch (error) {
+//     console.error('Error uploading file:', error);
+//     throw error;
+//   }
+// }

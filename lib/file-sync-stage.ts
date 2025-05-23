@@ -13,15 +13,18 @@ export class FileSyncStage extends Stage {
 
     const stage = props.stage || 'dev';
 
-    // Create the database stack first
-    new FileSyncStack(this, 'FileSync', {
+    // Create the S3 stack first
+    const s3Stack = new FileSyncS3Stack(this, 'FileSyncS3', {
       stage
     });
 
-    // Create the main stack, passing the table from the database stack
-    // new FileSyncS3Stack(this, 'FileSyncS3', {
-    //   stage,
-    //   fileSyncBucket: databaseStack.fileSyncBucket
-    // });
+    // Create the main stack, passing the bucket from the S3 stack
+    const mainStack = new FileSyncStack(this, 'FileSync', {
+      stage,
+      documentsBucket: s3Stack.documentsBucket  // Pass the S3 bucket reference
+    });
+
+    // Ensure S3 stack is deployed before main stack
+    mainStack.addDependency(s3Stack);
   }
 }

@@ -15,9 +15,11 @@ import {
 } from 'aws-cdk-lib/aws-apigateway';
 import { Queue, QueueEncryption, RedrivePermission } from 'aws-cdk-lib/aws-sqs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 
 interface FileSyncStackProps extends StackProps {
   stage: string;
+  documentsBucket: s3.Bucket;  // Add bucket reference
 }
 
 export class FileSyncStack extends Stack {
@@ -93,6 +95,8 @@ export class FileSyncStack extends Stack {
         }).unsafeUnwrap()
       }
     });
+
+    props.documentsBucket.grantReadWrite(fileProcessorLambda);
 
     const api = new LambdaRestApi(this, 'FileSyncApi', {
       restApiName: `${stage}-file-sync-api`,
