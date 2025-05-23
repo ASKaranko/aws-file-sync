@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import FormData from 'form-data';
+import axios from 'axios';
 
 export const handler = async (event) => {
   console.info('Received SQS event:', JSON.stringify(event, null, 2));
@@ -68,10 +69,21 @@ async function downloadFile(authToken, instanceURL, contentVersionId) {
   }
 
   console.log('SF response headers:', response.headers);
+  console.log('SF Content-Type:', response.headers.get('content-type'));
+  console.log('SF Content-Length:', response.headers.get('content-length'));
 
   // Get the binary data as ArrayBuffer
   const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const buffer = Buffer.from(arrayBuffer);
+  
+  // Debug the buffer content
+  console.log('ArrayBuffer size:', arrayBuffer.byteLength);
+  console.log('Buffer size:', buffer.length);
+  console.log('First 10 bytes as hex:', buffer.slice(0, 10).toString('hex'));
+  console.log('First 10 bytes as string:', buffer.slice(0, 10).toString());
+  console.log('Is PDF? (starts with %PDF):', buffer.slice(0, 4).toString() === '%PDF');
+  
+  return buffer;
 }
 
 async function uploadFile(fileMessage, bufferData) {
@@ -86,40 +98,30 @@ async function uploadFile(fileMessage, bufferData) {
     form.append('loan', fileMessage.lendingPadId);
     form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
 
-    // Send the actual binary buffer, NOT Base64 string
+    // Send the binary buffer directly
     form.append('file', bufferData, {
       filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
-      contentType: 'application/pdf',  // Correct MIME type for PDF
-      knownLength: bufferData.length   // Use buffer length, not Base64 length
+      contentType: 'application/pdf',
+      knownLength: bufferData.length
     });
-
-    console.log('Getting form buffer...');
-    const formBuffer = await form.getBuffer();
-    console.log('Form buffer size:', formBuffer.length, 'bytes');
 
     const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
 
-    const response = await fetch(url, {
-      method: 'POST',
+    // Use axios instead of fetch for form-data streams
+    const response = await axios.post(url, form, {
       headers: {
-        Authorization: `Bearer ${process.env.LENDING_PAD_API_KEY}`,
-        'Content-Type': `multipart/form-data; boundary=${form.getBoundary()}`,
-        'Content-Length': formBuffer.length.toString()
+        'Authorization': `Bearer ${process.env.LENDING_PAD_API_KEY}`,
+        ...form.getHeaders()  // Let form-data set correct headers
       },
-      body: formBuffer
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
     });
 
     console.log('LP Response status:', response.status);
-    const responseBody = await response.text();
-    console.log('LP Raw response:', responseBody);
+    console.log('LP Response data:', response.data);
 
-    if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status} ${response.statusText} - ${responseBody}`);
-    }
-
-    const responseData = JSON.parse(responseBody);
-    console.info('File uploaded to LendingPad:', responseData);
-    return responseData;
+    console.info('File uploaded to LendingPad:', response.data);
+    return response.data;
   } catch (error) {
     console.error('Error uploading file:', error);
     throw error;

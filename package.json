@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "aws-cdk-lib": "2.190.0",
+    "axios": "^1.9.0",
     "constructs": "^10.0.0",
     "form-data": "^4.0.2",
     "form-data-encoder": "^4.0.2",
