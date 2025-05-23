@@ -79,42 +79,27 @@ async function uploadFile(fileMessage, bufferData) {
     console.log('Starting upload to LendingPad...');
     console.log('Buffer size:', bufferData.length, 'bytes');
 
-    // Convert to Base64 - this is what LendingPad actually wants
+    // Convert to Base64 if LendingPad expects it
     const base64Content = bufferData.toString('base64');
-    console.log('Base64 length:', base64Content.length);
+    
+    // Create form with Node.js form-data
+    const form = new FormData();
+    form.append('company', fileMessage.lendingPadCompany);
+    form.append('contact', fileMessage.lendingPadContact);
+    form.append('loan', fileMessage.lendingPadId);
+    form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
+    
+    // Append Base64 as a "file" with proper options
+    form.append('file', base64Content, {
+      filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
+      contentType: 'text/plain',  // Since it's Base64 text
+      knownLength: base64Content.length
+    });
 
-    const boundary = `----WebKitFormBoundary${Date.now()}${Math.random().toString(36)}`;
-    const CRLF = '\r\n';
-
-    // Build complete form as string
-    let body = '';
-
-    // Text fields
-    body += `--${boundary}${CRLF}`;
-    body += `Content-Disposition: form-data; name="company"${CRLF}${CRLF}`;
-    body += `${fileMessage.lendingPadCompany}${CRLF}`;
-
-    body += `--${boundary}${CRLF}`;
-    body += `Content-Disposition: form-data; name="contact"${CRLF}${CRLF}`;
-    body += `${fileMessage.lendingPadContact}${CRLF}`;
-
-    body += `--${boundary}${CRLF}`;
-    body += `Content-Disposition: form-data; name="loan"${CRLF}${CRLF}`;
-    body += `${fileMessage.lendingPadId}${CRLF}`;
-
-    body += `--${boundary}${CRLF}`;
-    body += `Content-Disposition: form-data; name="name"${CRLF}${CRLF}`;
-    body += `${fileMessage.title}.${fileMessage.fileExtension}${CRLF}`;
-
-    // File as Base64 TEXT field (not binary file)
-    body += `--${boundary}${CRLF}`;
-    body += `Content-Disposition: form-data; name="file"; filename="${fileMessage.title}.${fileMessage.fileExtension}"${CRLF}`;
-    body += `Content-Type: application/pdf${CRLF}${CRLF}`;
-    body += `${base64Content}${CRLF}`;
-
-    body += `--${boundary}--${CRLF}`;
-
-    console.log('Form body length:', body.length);
+    // Correct usage according to docs - getBuffer() returns a Promise
+    console.log('Getting form buffer...');
+    const formBuffer = await form.getBuffer();
+    console.log('Form buffer size:', formBuffer.length, 'bytes');
 
     const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
 
@@ -122,10 +107,10 @@ async function uploadFile(fileMessage, bufferData) {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.LENDING_PAD_API_KEY}`,
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Length': Buffer.byteLength(body).toString()
+        'Content-Type': `multipart/form-data; boundary=${form.getBoundary()}`,
+        'Content-Length': formBuffer.length.toString()
       },
-      body: body
+      body: formBuffer
     });
 
     console.log('LP Response status:', response.status);
