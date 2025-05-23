@@ -2,6 +2,12 @@ import { Buffer } from 'node:buffer';
 // import FormData from 'form-data'; for LP
 // import axios from 'axios'; for LP
 
+import { S3Client } from '@aws-sdk/client-s3';
+import { Upload } from "@aws-sdk/lib-storage";
+import mime from 'mime-types';
+
+const UPLOAD_TO_S3_PART_SIZE = 10 * 1024 * 1024; // 10MB
+
 export const handler = async (event) => {
   console.info('Received SQS event:', JSON.stringify(event, null, 2));
 
@@ -15,19 +21,20 @@ export const handler = async (event) => {
 
   console.info('Auth response:', authResponse);
 
-  let sfReadable;
+  let stream;
   let fileMessage;
   try {
     const { access_token, instance_url } = authResponse;
     fileMessage = JSON.parse(event.Records[0].body);
     const contentVersionId = fileMessage.contentVersionId;
-    sfReadable = await downloadFile(access_token, instance_url, contentVersionId);
+    stream = await downloadFile(access_token, instance_url, contentVersionId);
   } catch (error) {
     console.log(error);
     throw error;
   }
 
-  //await uploadFileToLP(fileMessage, sfReadable);
+  await uploadToS3(fileMessage, stream);
+  //await uploadFileToLP(fileMessage, bufferedData);
   console.info('File uploaded to S3 and LendingPad ');
 };
 
@@ -68,11 +75,51 @@ async function downloadFile(authToken, instanceURL, contentVersionId) {
     throw new Error(`Failed to download file from Salesforce: ${response.status} ${response.statusText}`);
   }
 
-  // Get the binary data as ArrayBuffer
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  
-  return buffer;
+  return response.body;
+}
+
+async function uploadToS3(fileMessage, stream) {
+  try {
+    console.log('Starting upload to S3...');
+    
+    const s3Client = new S3Client({});
+
+    // Folder structure in S3
+    const s3Key = `Opportunities/${fileMessage.opportunityId}/${fileMessage.title}.${fileMessage.fileExtension}`;
+
+    const uploadParams = {
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: s3Key,
+      Body: stream,
+      ContentType: mime.lookup(fileMessage.fileExtension) || 'application/pdf',
+      Metadata: {
+        'source': 'salesforce',
+        'opportunity-id': fileMessage.opportunityId,
+        'original-title': fileMessage.title
+      }
+    };
+
+    const upload = new Upload({
+      client: s3Client,
+      params: uploadParams,
+      partSize: UPLOAD_TO_S3_PART_SIZE,
+      queueSize: 2,
+    });
+
+    const result = await upload.done();
+
+    console.log('File uploaded to S3:', result);
+
+    return {
+      location: result.Location,
+      bucket: result.Bucket,
+      key: result.Key,
+      etag: result.ETag
+    };
+  } catch (error) {
+    console.error('Error uploading to S3:', error);
+    throw error;
+  }
 }
 
 // async function uploadFileToLP(fileMessage, bufferData) {

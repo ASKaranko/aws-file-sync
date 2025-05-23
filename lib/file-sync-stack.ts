@@ -79,7 +79,7 @@ export class FileSyncStack extends Stack {
       entry: path.join(__dirname, '../lambda/transfer/file-processor.js'),
       handler: 'handler',
       memorySize: 512,
-      timeout: Duration.seconds(45),
+      timeout: Duration.minutes(5),
       logGroup: fileProcessorLogGroup,
       environment: {
         SALESFORCE_CLIENT_ID: SecretValue.secretsManager(`${secretStoreNameForSFExtClientAppCreds}`, {
@@ -92,7 +92,8 @@ export class FileSyncStack extends Stack {
         LENDING_PAD_API_URL: lendingPadAPI,
         LENDING_PAD_API_KEY: SecretValue.secretsManager(`${secretStoreNameForProdLP}`, {
           jsonField: 'api_key'
-        }).unsafeUnwrap()
+        }).unsafeUnwrap(),
+        S3_BUCKET_NAME: props.documentsBucket.bucketName
       }
     });
 
@@ -148,13 +149,13 @@ export class FileSyncStack extends Stack {
       queueName: `${stage}-file-sync-queue`,
       encryption: QueueEncryption.SQS_MANAGED,
       deliveryDelay: Duration.seconds(0),
-      visibilityTimeout: Duration.seconds(270), // best practice is greater that 6 × function timeout
+      visibilityTimeout: Duration.minutes(10), // best practice is greater that 6 × function timeout
       receiveMessageWaitTime: Duration.seconds(20),
       retentionPeriod: Duration.days(1),
       maxMessageSizeBytes: 262144, // 256KB
       deadLetterQueue: {
         queue: fileSyncDLQ,
-        maxReceiveCount: 3
+        maxReceiveCount: 2
       },
       redriveAllowPolicy: {
         redrivePermission: RedrivePermission.DENY_ALL
