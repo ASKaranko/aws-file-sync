@@ -79,42 +79,42 @@ async function uploadFile(fileMessage, bufferData) {
     console.log('Starting upload to LendingPad...');
     console.log('Buffer size:', bufferData.length, 'bytes');
 
-    // Convert to Base64 if LendingPad expects it
+    // Convert to Base64 - this is what LendingPad actually wants
     const base64Content = bufferData.toString('base64');
+    console.log('Base64 length:', base64Content.length);
 
-    // Manual multipart form construction
     const boundary = `----WebKitFormBoundary${Date.now()}${Math.random().toString(36)}`;
     const CRLF = '\r\n';
-    
+
+    // Build complete form as string
     let body = '';
-    
-    // Add text fields
+
+    // Text fields
     body += `--${boundary}${CRLF}`;
     body += `Content-Disposition: form-data; name="company"${CRLF}${CRLF}`;
     body += `${fileMessage.lendingPadCompany}${CRLF}`;
-    
+
     body += `--${boundary}${CRLF}`;
     body += `Content-Disposition: form-data; name="contact"${CRLF}${CRLF}`;
     body += `${fileMessage.lendingPadContact}${CRLF}`;
-    
+
     body += `--${boundary}${CRLF}`;
     body += `Content-Disposition: form-data; name="loan"${CRLF}${CRLF}`;
     body += `${fileMessage.lendingPadId}${CRLF}`;
-    
+
     body += `--${boundary}${CRLF}`;
     body += `Content-Disposition: form-data; name="name"${CRLF}${CRLF}`;
     body += `${fileMessage.title}.${fileMessage.fileExtension}${CRLF}`;
-    
-    // Add file as Base64 but declare it as application/pdf
+
+    // File as Base64 TEXT field (not binary file)
     body += `--${boundary}${CRLF}`;
     body += `Content-Disposition: form-data; name="file"; filename="${fileMessage.title}.${fileMessage.fileExtension}"${CRLF}`;
-    body += `Content-Type: application/pdf${CRLF}`;
-    body += `Content-Transfer-Encoding: base64${CRLF}${CRLF}`;
+    body += `Content-Type: application/pdf${CRLF}${CRLF}`;
     body += `${base64Content}${CRLF}`;
-    
+
     body += `--${boundary}--${CRLF}`;
 
-    console.log('Manual multipart body size:', Buffer.byteLength(body), 'bytes');
+    console.log('Form body length:', body.length);
 
     const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
 
