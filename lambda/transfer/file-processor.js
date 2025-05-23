@@ -90,30 +90,28 @@ async function uploadFile(fileMessage, bufferData) {
   try {
     console.log('Starting upload to LendingPad...');
     console.log('Buffer size:', bufferData.length, 'bytes');
-    console.log('Buffer is PDF?', bufferData.slice(0, 4).toString() === '%PDF');
 
-    // Convert binary PDF to Base64 string
-    const base64Content = bufferData.toString('base64');
-    console.log('Base64 string length:', base64Content.length);
-
-    // Create form with text fields only (no binary file upload)
+    // Create form with Node.js form-data
     const form = new FormData();
     form.append('company', fileMessage.lendingPadCompany);
     form.append('contact', fileMessage.lendingPadContact);
     form.append('loan', fileMessage.lendingPadId);
     form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
-    
-    // Send Base64 as plain text field (this is what LendingPad expects)
-    form.append('file', base64Content, {
-      filename: `${fileMessage.title}.${fileMessage.fileExtension}`
+
+    // Send the binary buffer directly
+    form.append('file', bufferData, {
+      filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
+      contentType: 'application/pdf',
+      knownLength: bufferData.length
     });
 
     const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
 
+    // Use axios instead of fetch for form-data streams
     const response = await axios.post(url, form, {
       headers: {
         'Authorization': `Bearer ${process.env.LENDING_PAD_API_KEY}`,
-        ...form.getHeaders()
+        ...form.getHeaders()  // Let form-data set correct headers
       },
       maxContentLength: Infinity,
       maxBodyLength: Infinity
