@@ -81,22 +81,21 @@ async function uploadFile(fileMessage, bufferData) {
 
     // Convert to Base64 if LendingPad expects it
     const base64Content = bufferData.toString('base64');
-    
+
     // Create form with Node.js form-data
     const form = new FormData();
     form.append('company', fileMessage.lendingPadCompany);
     form.append('contact', fileMessage.lendingPadContact);
     form.append('loan', fileMessage.lendingPadId);
     form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
-    
-    // Append Base64 as a "file" with proper options
+
+    // Fix: Set correct content type for PDF
     form.append('file', base64Content, {
       filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
-      contentType: 'text/plain',  // Since it's Base64 text
+      contentType: 'application/pdf',  // Changed from 'text/plain'
       knownLength: base64Content.length
     });
 
-    // Correct usage according to docs - getBuffer() returns a Promise
     console.log('Getting form buffer...');
     const formBuffer = await form.getBuffer();
     console.log('Form buffer size:', formBuffer.length, 'bytes');
@@ -106,7 +105,7 @@ async function uploadFile(fileMessage, bufferData) {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.LENDING_PAD_API_KEY}`,
+        Authorization: `Bearer ${process.env.LENDING_PAD_API_KEY}`,
         'Content-Type': `multipart/form-data; boundary=${form.getBoundary()}`,
         'Content-Length': formBuffer.length.toString()
       },
