@@ -30,6 +30,7 @@ export class FileSyncStack extends Stack {
 
     const sandboxDomain = 'https://emortgage--orisa.sandbox.my.salesforce.com';
     const productionDomain = 'https://emortgage.my.salesforce.com';
+    const salesforceFileSyncResultsAPI = `${stage === 'prod' ? productionDomain : sandboxDomain}/services/apexrest/file-sync/v1/results/`;
     const lendingPadAPI = 'https://api.lendingpad.com';
     const secretStoreNameForSFExtClientAppCreds = `${stage}/salesforce/sf-ext-client-app-creds`;
     const secretStoreNameForProdLP = 'prod/lendingPad/api-key';
@@ -89,6 +90,7 @@ export class FileSyncStack extends Stack {
           jsonField: 'client_secret'
         }).unsafeUnwrap(),
         SALESFORCE_DOMAIN: stage === 'prod' ? productionDomain : sandboxDomain,
+        SALESFORCE_FILE_SYNC_RESULTS_API: salesforceFileSyncResultsAPI,
         LENDING_PAD_API_URL: lendingPadAPI,
         LENDING_PAD_API_KEY: SecretValue.secretsManager(`${secretStoreNameForProdLP}`, {
           jsonField: 'api_key'

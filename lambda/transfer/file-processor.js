@@ -18,7 +18,7 @@ export const handler = async (event) => {
 
   let authResponse;
   try {
-    authResponse = await connectToSalesforce();
+    authResponse = await connectToSF();
   } catch (error) {
     console.error(error);
     throw error;
@@ -81,13 +81,19 @@ async function handleFileCreate(authResponse, fileMessage) {
   if (!result) {
     throw new Error('File upload to S3 failed');
   }
+
+  try {
+    await sendFileSyncResultToSF(access_token, result);
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 /**
  * Connect to Salesforce using OAuth2 client credentials
  * @returns auth response from Salesforce
  */
-async function connectToSalesforce() {
+async function connectToSF() {
   const response = await fetch(process.env.SALESFORCE_DOMAIN + '/services/oauth2/token', {
     method: 'POST',
     headers: {
@@ -200,3 +206,33 @@ async function uploadToS3(fileMessage, stream) {
 //     console.info('File uploaded to LendingPad:', response.data);
 //     return response.data;
 // }
+
+/**
+ * Send file sync result to Salesforce
+ * @param {string} authToken - Salesforce OAuth2 access token
+ * @param {Object} result - Result object containing S3 upload details
+ * @returns auth response from Salesforce
+ */
+async function sendFileSyncResultToSF(authToken, result) {
+  const response = await fetch(process.env.SALESFORCE_FILE_SYNC_RESULTS_API, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({
+      s3Bucket: result.bucket,
+      s3Key: result.key,
+      s3Location: result.location,
+      s3Etag: result.etag
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to send file sync results to Salesforce: ${response.status} ${response.statusText}`);
+  }
+
+  const responseFromSF = await response.json();
+  console.log('Response from SF for a sent file sync result:', JSON.stringify(responseFromSF, null, 2));
+  return responseFromSF;
+}
