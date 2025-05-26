@@ -53,7 +53,7 @@ export const handler = async (event) => {
 };
 
 async function handleFileCreate(authResponse, fileMessage) {
-  let result;
+  let uploadResponse;
 
   const { access_token, instance_url } = authResponse;
   const contentVersionId = fileMessage.contentVersionId;
@@ -67,7 +67,7 @@ async function handleFileCreate(authResponse, fileMessage) {
   }
 
   try {
-    result = await uploadToS3(fileMessage, stream);
+    uploadResponse = await uploadToS3(fileMessage, stream);
   } catch (error) {
     console.error('Failed to create file in S3:', error);
   }
@@ -78,12 +78,12 @@ async function handleFileCreate(authResponse, fileMessage) {
     console.error('Failed to create file in LP:', error);
   }
 
-  if (!result) {
+  if (!uploadResponse) {
     throw new Error('File upload to S3 failed');
   }
 
   try {
-    await sendFileSyncResultToSF(access_token, result);
+    await sendFileSyncResultToSF(access_token, uploadResponse, fileMessage);
   } catch (error) {
     console.error(error);
   }
@@ -135,7 +135,7 @@ async function uploadToS3(fileMessage, stream) {
   const s3Client = new S3Client({});
 
   // Folder structure in S3
-  const s3Key = `Opportunities/${fileMessage.opportunityId}/${fileMessage.title}.${fileMessage.fileExtension}`;
+  const s3Key = `${fileMessage.sfParentObjectName}/${fileMessage.sfParentObjectId}/${fileMessage.title}.${fileMessage.fileExtension}`;
 
   const uploadParams = {
     Bucket: process.env.S3_BUCKET_NAME,
@@ -144,8 +144,9 @@ async function uploadToS3(fileMessage, stream) {
     ContentType: mime.lookup(fileMessage.fileExtension) || 'application/pdf',
     Metadata: {
       source: 'Salesforce',
+      'sf-parent-object-name': fileMessage.sfParentObjectName,
+      'sf-parent-object-id': fileMessage.sfParentObjectId,
       'folder-name': fileMessage.folder,
-      'opportunity-id': fileMessage.opportunityId,
       'content-document-id': fileMessage.contentDocumentId,
       'content-version-id': fileMessage.contentVersionId
     }
@@ -210,10 +211,11 @@ async function uploadToS3(fileMessage, stream) {
 /**
  * Send file sync result to Salesforce
  * @param {string} authToken - Salesforce OAuth2 access token
- * @param {Object} result - Result object containing S3 upload details
+ * @param {Object} uploadResponse - Response from S3 upload
+ * @param {Object} fileMessage - Original file message containing metadata
  * @returns auth response from Salesforce
  */
-async function sendFileSyncResultToSF(authToken, result) {
+async function sendFileSyncResultToSF(authToken, uploadResponse, fileMessage) {
   const response = await fetch(process.env.SALESFORCE_FILE_SYNC_RESULTS_API, {
     method: 'POST',
     headers: {
@@ -222,10 +224,21 @@ async function sendFileSyncResultToSF(authToken, result) {
       Accept: 'application/json'
     },
     body: JSON.stringify({
-      s3Bucket: result.bucket,
-      s3Key: result.key,
-      s3Location: result.location,
-      s3Etag: result.etag
+      s3Bucket: uploadResponse.Bucket,
+      s3Key: uploadResponse.Key,
+      s3Location: uploadResponse.Location,
+      s3Etag: uploadResponse.Etag,
+      s3VersionId: uploadResponse.VersionId,
+      s3Region: process.env.AWS_REGION,
+      title: fileMessage.title,
+      fileExtension: fileMessage.fileExtension,
+      folder: fileMessage.folder,
+      contentSize: fileMessage.contentSize,
+      actionType: fileMessage.actionType,
+      contentVersionId: fileMessage.contentVersionId,
+      contentDocumentId: fileMessage.contentDocumentId,
+      sfParentObjectId: fileMessage.sfParentObjectId,
+      sfParentObjectName: fileMessage.sfParentObjectName,
     })
   });
   if (!response.ok) {
