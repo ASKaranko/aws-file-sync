@@ -1,12 +1,17 @@
-import { Buffer } from 'node:buffer';
+//import { Buffer } from 'node:buffer'; for LP
 // import FormData from 'form-data'; for LP
 // import axios from 'axios'; for LP
 
 import { S3Client } from '@aws-sdk/client-s3';
-import { Upload } from "@aws-sdk/lib-storage";
+import { Upload } from '@aws-sdk/lib-storage';
 import mime from 'mime-types';
 
 const UPLOAD_TO_S3_PART_SIZE = 10 * 1024 * 1024; // 10MB
+const actionType = {
+  FILE_CREATE: 'FILE_CREATE',
+  FILE_UPDATE: 'FILE_UPDATE',
+  FILE_DELETE: 'FILE_DELETE'
+};
 
 export const handler = async (event) => {
   console.info('Received SQS event:', JSON.stringify(event, null, 2));
@@ -19,24 +24,64 @@ export const handler = async (event) => {
     throw error;
   }
 
-  console.info('Auth response:', authResponse);
+  console.info('Salesforce authentication successful');
+
+  try {
+    const fileMessage = JSON.parse(event.Records[0].body);
+
+    switch (fileMessage.actionType) {
+      case actionType.FILE_CREATE:
+        await handleFileCreate(authResponse, fileMessage);
+        break;
+
+      case actionType.FILE_UPDATE:
+        // implement later
+        break;
+
+      case actionType.FILE_DELETE:
+        // implement later
+        break;
+
+      default:
+        console.warn('Unknown action type:', fileMessage.actionType);
+        throw new Error(`Unsupported action type: ${fileMessage.actionType}`);
+    }
+  } catch (error) {
+    console.error('File operation failed:', error);
+    throw error;
+  }
+};
+
+async function handleFileCreate(authResponse, fileMessage) {
+  let result;
+
+  const { access_token, instance_url } = authResponse;
+  const contentVersionId = fileMessage.contentVersionId;
 
   let stream;
-  let fileMessage;
   try {
-    const { access_token, instance_url } = authResponse;
-    fileMessage = JSON.parse(event.Records[0].body);
-    const contentVersionId = fileMessage.contentVersionId;
     stream = await downloadFile(access_token, instance_url, contentVersionId);
   } catch (error) {
-    console.log(error);
+    console.error(error);
     throw error;
   }
 
-  await uploadToS3(fileMessage, stream);
-  //await uploadFileToLP(fileMessage, bufferedData);
-  console.info('File uploaded to S3 and LendingPad ');
-};
+  try {
+    result = await uploadToS3(fileMessage, stream);
+  } catch (error) {
+    console.error('Failed to create file in S3:', error);
+  }
+
+  try {
+    //await uploadToLP(fileMessage, stream);
+  } catch (error) {
+    console.error('Failed to create file in LP:', error);
+  }
+
+  if (!result) {
+    throw new Error('File upload to S3 failed');
+  }
+}
 
 /**
  * Connect to Salesforce using OAuth2 client credentials
@@ -79,51 +124,47 @@ async function downloadFile(authToken, instanceURL, contentVersionId) {
 }
 
 async function uploadToS3(fileMessage, stream) {
-  try {
-    console.log('Starting upload to S3...');
-    
-    const s3Client = new S3Client({});
+  console.log('Starting upload to S3...');
 
-    // Folder structure in S3
-    const s3Key = `Opportunities/${fileMessage.opportunityId}/${fileMessage.title}.${fileMessage.fileExtension}`;
+  const s3Client = new S3Client({});
 
-    const uploadParams = {
-      Bucket: process.env.S3_BUCKET_NAME,
-      Key: s3Key,
-      Body: stream,
-      ContentType: mime.lookup(fileMessage.fileExtension) || 'application/pdf',
-      Metadata: {
-        'source': 'salesforce',
-        'opportunity-id': fileMessage.opportunityId,
-        'original-title': fileMessage.title
-      }
-    };
+  // Folder structure in S3
+  const s3Key = `Opportunities/${fileMessage.opportunityId}/${fileMessage.title}.${fileMessage.fileExtension}`;
 
-    const upload = new Upload({
-      client: s3Client,
-      params: uploadParams,
-      partSize: UPLOAD_TO_S3_PART_SIZE,
-      queueSize: 2,
-    });
+  const uploadParams = {
+    Bucket: process.env.S3_BUCKET_NAME,
+    Key: s3Key,
+    Body: stream,
+    ContentType: mime.lookup(fileMessage.fileExtension) || 'application/pdf',
+    Metadata: {
+      source: 'Salesforce',
+      'folder-name': fileMessage.folder,
+      'opportunity-id': fileMessage.opportunityId,
+      'content-document-id': fileMessage.contentDocumentId,
+      'content-version-id': fileMessage.contentVersionId
+    }
+  };
 
-    const result = await upload.done();
+  const upload = new Upload({
+    client: s3Client,
+    params: uploadParams,
+    partSize: UPLOAD_TO_S3_PART_SIZE,
+    queueSize: 2
+  });
 
-    console.log('File uploaded to S3:', result);
+  const result = await upload.done();
 
-    return {
-      location: result.Location,
-      bucket: result.Bucket,
-      key: result.Key,
-      etag: result.ETag
-    };
-  } catch (error) {
-    console.error('Error uploading to S3:', error);
-    throw error;
-  }
+  console.log('File uploaded to S3 successfully:', result);
+
+  return {
+    location: result.Location,
+    bucket: result.Bucket,
+    key: result.Key,
+    etag: result.ETag
+  };
 }
 
-// async function uploadFileToLP(fileMessage, bufferData) {
-//   try {
+// async function uploadToLP(fileMessage, bufferData) {
 //     console.log('Starting upload to LendingPad...');
 //     console.log('Buffer size:', bufferData.length, 'bytes');
 
@@ -158,8 +199,4 @@ async function uploadToS3(fileMessage, stream) {
 
 //     console.info('File uploaded to LendingPad:', response.data);
 //     return response.data;
-//   } catch (error) {
-//     console.error('Error uploading file:', error);
-//     throw error;
-//   }
 // }
