@@ -167,7 +167,8 @@ async function uploadToS3(fileMessage, stream) {
     location: result.Location,
     bucket: result.Bucket,
     key: result.Key,
-    etag: result.ETag
+    etag: result.ETag,
+    versionId: result.VersionId,
   };
 }
 
@@ -224,11 +225,11 @@ async function sendFileSyncResultToSF(authToken, uploadResponse, fileMessage) {
       Accept: 'application/json'
     },
     body: JSON.stringify({
-      s3Bucket: uploadResponse.Bucket,
-      s3Key: uploadResponse.Key,
-      s3Location: uploadResponse.Location,
-      s3Etag: uploadResponse.Etag,
-      s3VersionId: uploadResponse.VersionId,
+      s3Bucket: uploadResponse.bucket,
+      s3Key: uploadResponse.key,
+      s3Location: uploadResponse.location,
+      s3Etag: uploadResponse.etag,
+      s3VersionId: uploadResponse.versionId,
       s3Region: process.env.AWS_REGION,
       title: fileMessage.title,
       fileExtension: fileMessage.fileExtension,
