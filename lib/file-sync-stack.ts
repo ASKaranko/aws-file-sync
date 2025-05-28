@@ -33,7 +33,7 @@ export class FileSyncStack extends Stack {
     const salesforceFileSyncResultsAPI = `${stage === 'prod' ? productionDomain : sandboxDomain}/services/apexrest/file-sync/v1/results/`;
     const lendingPadAPI = 'https://api.lendingpad.com';
     const secretStoreNameForSFExtClientAppCreds = `${stage}/salesforce/sf-ext-client-app-creds`;
-    const secretStoreNameForProdLP = 'prod/lendingPad/api-key';
+    const secretStoreNameForBasicAuthLPCreds = 'prod/lending-pad/basic-auth-creds';
 
     new CfnOutput(this, 'Stage', {
       value: stage,
@@ -89,12 +89,15 @@ export class FileSyncStack extends Stack {
         SALESFORCE_CLIENT_SECRET: SecretValue.secretsManager(`${secretStoreNameForSFExtClientAppCreds}`, {
           jsonField: 'client_secret'
         }).unsafeUnwrap(),
+        LENDING_PAD_USERNAME: SecretValue.secretsManager(`${secretStoreNameForBasicAuthLPCreds}`, {
+          jsonField: 'username'
+        }).unsafeUnwrap(),
+        LENDING_PAD_PASSWORD: SecretValue.secretsManager(`${secretStoreNameForBasicAuthLPCreds}`, {
+          jsonField: 'password'
+        }).unsafeUnwrap(),
         SALESFORCE_DOMAIN: stage === 'prod' ? productionDomain : sandboxDomain,
         SALESFORCE_FILE_SYNC_RESULTS_API: salesforceFileSyncResultsAPI,
         LENDING_PAD_API_URL: lendingPadAPI,
-        LENDING_PAD_API_KEY: SecretValue.secretsManager(`${secretStoreNameForProdLP}`, {
-          jsonField: 'api_key'
-        }).unsafeUnwrap(),
         S3_BUCKET_NAME: props.documentsBucket.bucketName
       }
     });

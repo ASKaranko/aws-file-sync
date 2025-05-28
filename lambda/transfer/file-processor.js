@@ -1,6 +1,6 @@
-//import { Buffer } from 'node:buffer'; for LP
-// import FormData from 'form-data'; for LP
-// import axios from 'axios'; for LP
+import { Buffer } from 'node:buffer';
+import { FormData } from 'undici';
+import { Readable } from 'stream';
 
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
@@ -9,8 +9,7 @@ import mime from 'mime-types';
 const UPLOAD_TO_S3_PART_SIZE = 10 * 1024 * 1024; // 10MB
 const actionType = {
   FILE_CREATE: 'FILE_CREATE',
-  FILE_UPDATE: 'FILE_UPDATE',
-  FILE_DELETE: 'FILE_DELETE'
+  FILE_UPDATE: 'FILE_UPDATE'
 };
 
 export const handler = async (event) => {
@@ -35,11 +34,7 @@ export const handler = async (event) => {
         break;
 
       case actionType.FILE_UPDATE:
-        // implement later
-        break;
-
-      case actionType.FILE_DELETE:
-        // implement later
+        await handleFileCreate(authResponse, fileMessage);
         break;
 
       default:
@@ -58,22 +53,28 @@ async function handleFileCreate(authResponse, fileMessage) {
   const { access_token, instance_url } = authResponse;
   const contentVersionId = fileMessage.contentVersionId;
 
-  let stream;
+  let fileBuffer;
   try {
-    stream = await downloadFile(access_token, instance_url, contentVersionId);
+    const response = await downloadFile(access_token, instance_url, contentVersionId);
+    console.log('Converting response to buffer...');
+    const arrayBuffer = await response.arrayBuffer(); // Use response.arrayBuffer()
+    fileBuffer = Buffer.from(arrayBuffer);
+    console.log('Downloaded file size:', fileBuffer.length, 'bytes');
   } catch (error) {
-    console.error(error);
+    console.error('Failed to download file:', error);
     throw error;
   }
 
   try {
-    uploadResponse = await uploadToS3(fileMessage, stream);
+    const s3Stream = Readable.from(fileBuffer);
+    uploadResponse = await uploadToS3(fileMessage, s3Stream);
   } catch (error) {
     console.error('Failed to create file in S3:', error);
+    throw error; // S3 upload is critical
   }
 
   try {
-    //await uploadToLP(fileMessage, stream);
+    await uploadToLP(fileMessage, fileBuffer);
   } catch (error) {
     console.error('Failed to create file in LP:', error);
   }
@@ -94,6 +95,7 @@ async function handleFileCreate(authResponse, fileMessage) {
  * @returns auth response from Salesforce
  */
 async function connectToSF() {
+  // eslint-disable-next-line no-undef
   const response = await fetch(process.env.SALESFORCE_DOMAIN + '/services/oauth2/token', {
     method: 'POST',
     headers: {
@@ -101,6 +103,7 @@ async function connectToSF() {
       Accept: 'application/json',
       scope: 'api'
     },
+    // eslint-disable-next-line no-undef
     body: `grant_type=client_credentials&client_id=${process.env.SALESFORCE_CLIENT_ID}&client_secret=${process.env.SALESFORCE_CLIENT_SECRET}`
   });
   if (!response.ok) {
@@ -126,7 +129,7 @@ async function downloadFile(authToken, instanceURL, contentVersionId) {
     throw new Error(`Failed to download file from Salesforce: ${response.status} ${response.statusText}`);
   }
 
-  return response.body;
+  return response;
 }
 
 async function uploadToS3(fileMessage, stream) {
@@ -138,6 +141,7 @@ async function uploadToS3(fileMessage, stream) {
   const s3Key = `${fileMessage.sfParentObjectName}/${fileMessage.sfParentObjectId}/${fileMessage.title}.${fileMessage.fileExtension}`;
 
   const uploadParams = {
+    // eslint-disable-next-line no-undef
     Bucket: process.env.S3_BUCKET_NAME,
     Key: s3Key,
     Body: stream,
@@ -168,46 +172,64 @@ async function uploadToS3(fileMessage, stream) {
     bucket: result.Bucket,
     key: result.Key,
     etag: result.ETag,
-    versionId: result.VersionId,
+    versionId: result.VersionId
   };
 }
 
-// async function uploadToLP(fileMessage, bufferData) {
-//     console.log('Starting upload to LendingPad...');
-//     console.log('Buffer size:', bufferData.length, 'bytes');
+async function uploadToLP(fileMessage, fileBuffer) {
+  console.log('Starting upload to LendingPad...');
 
-//     // Create form with Node.js form-data
-//     const form = new FormData();
-//     form.append('company', fileMessage.lendingPadCompany);
-//     form.append('contact', fileMessage.lendingPadContact);
-//     form.append('loan', fileMessage.lendingPadId);
-//     form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
+  // Create basic auth credentials
+  // eslint-disable-next-line no-undef
+  const username = process.env.LENDING_PAD_USERNAME;
+  // eslint-disable-next-line no-undef
+  const password = process.env.LENDING_PAD_PASSWORD;
+  const basicAuth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
 
-//     // Send the binary buffer directly
-//     form.append('file', bufferData, {
-//       filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
-//       contentType: 'application/pdf',
-//       knownLength: bufferData.length
-//     });
+  const contentType = mime.lookup(fileMessage.fileExtension) || 'application/pdf';
+  const fileBlob = new Blob([fileBuffer], { type: contentType });
+  console.log('File blob size:', fileBlob.size, 'bytes');
 
-//     const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
+  // Create FormData from undici
+  const form = new FormData();
+  form.append('company', fileMessage.lendingPadCompany);
+  form.append('contact', fileMessage.lendingPadContact);
+  form.append('loan', fileMessage.lendingPadId);
+  form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
 
-//     // Use axios instead of fetch for form-data streams
-//     const response = await axios.post(url, form, {
-//       headers: {
-//         'Authorization': `Bearer ${process.env.LENDING_PAD_API_KEY}`,
-//         ...form.getHeaders()  // Let form-data set correct headers
-//       },
-//       maxContentLength: Infinity,
-//       maxBodyLength: Infinity
-//     });
+  // Append the stream directly (undici FormData supports streams)
+  form.append('file', fileBlob, `${fileMessage.title}.${fileMessage.fileExtension}`);
 
-//     console.log('LP Response status:', response.status);
-//     console.log('LP Response data:', response.data);
+  // eslint-disable-next-line no-undef
+  const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
 
-//     console.info('File uploaded to LendingPad:', response.data);
-//     return response.data;
-// }
+  console.log('LendingPad URL:', url);
+  console.log('Using basic auth for user:', username);
+  console.log('Form data prepared, making request...');
+
+  // Use fetch with FormData (undici FormData works with fetch)
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: basicAuth
+    },
+    body: form
+  });
+
+  console.log('LP Response status:', response.status);
+  console.log('LP Response headers:', Object.fromEntries(response.headers.entries()));
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`LendingPad upload failed: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  const responseData = await response.json();
+  console.log('LP Response data:', responseData);
+  console.info('File uploaded to LendingPad successfully');
+
+  return responseData;
+}
 
 /**
  * Send file sync result to Salesforce
@@ -224,23 +246,18 @@ async function sendFileSyncResultToSF(authToken, uploadResponse, fileMessage) {
       'Content-Type': 'application/json',
       Accept: 'application/json'
     },
-    body: JSON.stringify({
-      s3Bucket: uploadResponse.bucket,
-      s3Key: uploadResponse.key,
-      s3Location: uploadResponse.location,
-      s3Etag: uploadResponse.etag,
-      s3VersionId: uploadResponse.versionId,
-      s3Region: process.env.AWS_REGION,
-      title: fileMessage.title,
-      fileExtension: fileMessage.fileExtension,
-      folder: fileMessage.folder,
-      contentSize: fileMessage.contentSize,
-      actionType: fileMessage.actionType,
-      contentVersionId: fileMessage.contentVersionId,
-      contentDocumentId: fileMessage.contentDocumentId,
-      sfParentObjectId: fileMessage.sfParentObjectId,
-      sfParentObjectName: fileMessage.sfParentObjectName,
-    })
+    // sending an array of objects to match the expected format to allow for multiple files in the future
+    body: JSON.stringify([
+      {
+        s3Bucket: uploadResponse.bucket,
+        s3Key: uploadResponse.key,
+        s3Location: uploadResponse.location,
+        s3Etag: uploadResponse.etag,
+        s3VersionId: uploadResponse.versionId,
+        s3Region: process.env.AWS_REGION,
+        ...fileMessage // Spread the original file message for context
+      }
+    ])
   });
   if (!response.ok) {
     throw new Error(`Failed to send file sync results to Salesforce: ${response.status} ${response.statusText}`);
