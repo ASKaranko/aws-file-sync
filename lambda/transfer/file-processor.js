@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { FormData } from 'undici';
-import { Readable } from 'stream';
+import { Readable, PassThrough } from 'stream';
 
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
@@ -30,11 +30,11 @@ export const handler = async (event) => {
 
     switch (fileMessage.actionType) {
       case actionType.FILE_CREATE:
-        await handleFileCreate(authResponse, fileMessage);
+        await handleFileUpload(authResponse, fileMessage);
         break;
 
       case actionType.FILE_UPDATE:
-        await handleFileCreate(authResponse, fileMessage);
+        await handleFileUpload(authResponse, fileMessage);
         break;
 
       default:
@@ -47,40 +47,41 @@ export const handler = async (event) => {
   }
 };
 
-async function handleFileCreate(authResponse, fileMessage) {
-  let uploadResponse;
-
+async function handleFileUpload(authResponse, fileMessage) {
   const { access_token, instance_url } = authResponse;
   const contentVersionId = fileMessage.contentVersionId;
 
-  let fileBuffer;
+  let sourceStream;
   try {
-    const response = await downloadFile(access_token, instance_url, contentVersionId);
-    console.log('Converting response to buffer...');
-    const arrayBuffer = await response.arrayBuffer(); // Use response.arrayBuffer()
-    fileBuffer = Buffer.from(arrayBuffer);
-    console.log('Downloaded file size:', fileBuffer.length, 'bytes');
+    sourceStream = await downloadFile(access_token, instance_url, contentVersionId);
   } catch (error) {
     console.error('Failed to download file:', error);
     throw error;
   }
 
-  try {
-    const s3Stream = Readable.from(fileBuffer);
-    uploadResponse = await uploadToS3(fileMessage, s3Stream);
-  } catch (error) {
-    console.error('Failed to create file in S3:', error);
-    throw error; // S3 upload is critical
+  const s3Stream = new PassThrough();
+  const lpStream = new PassThrough();
+
+  const nodeSourceStream = Readable.fromWeb(sourceStream);
+  nodeSourceStream.pipe(s3Stream);
+  nodeSourceStream.pipe(lpStream);
+
+  const [s3Result, lpResult] = await Promise.allSettled([uploadToS3(fileMessage, s3Stream), uploadToLP(fileMessage, Readable.toWeb(lpStream))]);
+
+  let uploadResponse;
+  if (s3Result.status === 'fulfilled') {
+    uploadResponse = s3Result.value;
+    console.log('S3 upload successful');
+  } else {
+    console.error('S3 upload failed:', s3Result.reason);
+    throw new Error('S3 upload failed');
   }
 
-  try {
-    await uploadToLP(fileMessage, fileBuffer);
-  } catch (error) {
-    console.error('Failed to create file in LP:', error);
-  }
-
-  if (!uploadResponse) {
-    throw new Error('File upload to S3 failed');
+  if (lpResult.status === 'fulfilled') {
+    console.log('LendingPad upload successful');
+  } else {
+    console.error('LendingPad upload failed:', lpResult.reason);
+    // Don't throw - S3 succeeded
   }
 
   try {
@@ -129,7 +130,7 @@ async function downloadFile(authToken, instanceURL, contentVersionId) {
     throw new Error(`Failed to download file from Salesforce: ${response.status} ${response.statusText}`);
   }
 
-  return response;
+  return response.body;
 }
 
 async function uploadToS3(fileMessage, stream) {
@@ -176,7 +177,7 @@ async function uploadToS3(fileMessage, stream) {
   };
 }
 
-async function uploadToLP(fileMessage, fileBuffer) {
+async function uploadToLP(fileMessage, stream) {
   console.log('Starting upload to LendingPad...');
 
   // Create basic auth credentials
@@ -187,8 +188,8 @@ async function uploadToLP(fileMessage, fileBuffer) {
   const basicAuth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
 
   const contentType = mime.lookup(fileMessage.fileExtension) || 'application/pdf';
-  const fileBlob = new Blob([fileBuffer], { type: contentType });
-  console.log('File blob size:', fileBlob.size, 'bytes');
+  const fileBlob = new Blob([stream], { type: contentType });
+  console.log('File blob created from stream');
 
   // Create FormData from undici
   const form = new FormData();
@@ -205,7 +206,7 @@ async function uploadToLP(fileMessage, fileBuffer) {
 
   console.log('LendingPad URL:', url);
   console.log('Using basic auth for user:', username);
-  console.log('Form data prepared, making request...');
+  console.log('Form data prepared with streaming blob...');
 
   // Use fetch with FormData (undici FormData works with fetch)
   const response = await fetch(url, {
