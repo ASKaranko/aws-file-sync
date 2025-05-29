@@ -68,9 +68,17 @@ async function handleFileUpload(authResponse, fileMessage) {
     uploadToLP(fileMessage, lpWebStream)
   ]);
 
-  let uploadResponse;
+  let uploadResponse = {
+    uploadedToS3: false,
+    uploadedToLP: false
+  };
+
   if (s3Result.status === 'fulfilled') {
-    uploadResponse = s3Result.value;
+    uploadResponse.uploadedToS3 = true;
+    uploadResponse = {
+      ...uploadResponse,
+      ...s3Result.value // Spread the S3 upload response
+    };
     console.log('S3 upload successful');
   } else {
     console.error('S3 upload failed:', s3Result.reason);
@@ -78,6 +86,7 @@ async function handleFileUpload(authResponse, fileMessage) {
   }
 
   if (lpResult.status === 'fulfilled') {
+    uploadResponse.uploadedToLP = true;
     console.log('LendingPad upload successful');
   } else {
     console.error('LendingPad upload failed:', lpResult.reason);
@@ -271,6 +280,8 @@ async function sendFileSyncResultToSF(authToken, uploadResponse, fileMessage) {
         s3Etag: uploadResponse.etag,
         s3VersionId: uploadResponse.versionId,
         s3Region: process.env.AWS_REGION,
+        uploadedToS3: uploadResponse.uploadedToS3,
+        uploadedToLP: uploadResponse.uploadedToLP,
         ...fileMessage // Spread the original file message for context
       }
     ])
