@@ -224,11 +224,27 @@ async function uploadToLP(fileMessage, stream) {
     throw new Error(`LendingPad upload failed: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const responseData = await response.json();
-  console.log('LP Response data:', responseData);
-  console.info('File uploaded to LendingPad successfully');
+  let responseData;
+  try {
+    responseData = await response.json();
+  } catch (parseError) {
+    console.error('Failed to parse LP response as JSON:', parseError);
+    throw new Error('Invalid JSON response from LendingPad');
+  }
 
-  return responseData;
+  console.log('LP Response data:', responseData);
+
+  switch (responseData.status?.code) {
+    case 1:
+      // Success
+      console.info(`File uploaded to LendingPad successfully. Document ID: ${responseData.id}`);
+      return responseData;
+
+    case 2:
+      // Error
+      console.error(`LendingPad upload failed: ${responseData.status?.description}`);
+      throw new Error(`LendingPad error: ${responseData.status?.description}`);
+  }
 }
 
 /**
