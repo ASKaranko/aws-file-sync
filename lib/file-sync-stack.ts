@@ -11,7 +11,9 @@ import {
   AccessLogFormat,
   MethodLoggingLevel,
   AuthorizationType,
-  LambdaIntegration
+  LambdaIntegration,
+  ApiKey,
+  UsagePlan
 } from 'aws-cdk-lib/aws-apigateway';
 import { Queue, QueueEncryption, RedrivePermission } from 'aws-cdk-lib/aws-sqs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
@@ -19,7 +21,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 
 interface FileSyncStackProps extends StackProps {
   stage: string;
-  documentsBucket: s3.Bucket;  // Add bucket reference
+  documentsBucket: s3.Bucket; // Add bucket reference
 }
 
 export class FileSyncStack extends Stack {
@@ -104,6 +106,21 @@ export class FileSyncStack extends Stack {
 
     props.documentsBucket.grantReadWrite(fileProcessorLambda);
 
+    const apiKey = new ApiKey(this, 'FileSyncApiKey', {
+      apiKeyName: `${stage}-file-sync-api-key`,
+      description: 'API Key for File Sync Service'
+    });
+
+    const usagePlan = new UsagePlan(this, 'FileSyncUsagePlan', {
+      name: `${stage}-file-sync-usage-plan`,
+      description: 'Usage plan for File Sync API',
+      throttle: {
+        rateLimit: 100, // Lower than stage limit (100 < 200)
+        burstLimit: 200 // Lower than stage burst limit (200 < 300)
+      }
+      // No quota for unlimited monthly usage
+    });
+
     const api = new LambdaRestApi(this, 'FileSyncApi', {
       restApiName: `${stage}-file-sync-api`,
       description: 'API for processing file sync',
@@ -124,7 +141,19 @@ export class FileSyncStack extends Stack {
       },
       defaultMethodOptions: {
         authorizationType: AuthorizationType.NONE
+      },
+      defaultCorsPreflightOptions: {
+        allowOrigins: ['*'],
+        allowMethods: ['POST'],
+        allowHeaders: ['*'],
+        allowCredentials: false
       }
+    });
+
+    usagePlan.addApiKey(apiKey);
+    usagePlan.addApiStage({
+      api,
+      stage: api.deploymentStage
     });
 
     // Add /file-sync resource with POST method
@@ -135,12 +164,18 @@ export class FileSyncStack extends Stack {
       new LambdaIntegration(fileSyncCreateRouterLambda, {
         proxy: true,
         allowTestInvoke: true
-      })
+      }),
+      { authorizationType: AuthorizationType.NONE, apiKeyRequired: true }
     );
 
     new CfnOutput(this, 'ApiEndpoint', {
       value: api.url,
       description: 'The URL of the API Gateway endpoint'
+    });
+
+    new CfnOutput(this, 'ApiKeyId', {
+      value: apiKey.keyId,
+      description: 'API Key ID - use with AWS CLI to get the actual key value'
     });
 
     const fileSyncDLQ = new Queue(this, 'FileSyncDLQ', {
