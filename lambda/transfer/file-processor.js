@@ -1,6 +1,5 @@
 import { Buffer } from 'node:buffer';
 import { FormData } from 'undici';
-import { Readable, PassThrough } from 'stream';
 
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
@@ -59,14 +58,15 @@ async function handleFileUpload(authResponse, fileMessage) {
     throw error;
   }
 
-  const s3Stream = new PassThrough();
-  const lpStream = new PassThrough();
+  // tee() splits stream into two independent streams
+  const [s3WebStream, lpWebStream] = sourceStream.tee();
 
-  const nodeSourceStream = Readable.fromWeb(sourceStream);
-  nodeSourceStream.pipe(s3Stream);
-  nodeSourceStream.pipe(lpStream);
+  console.log('Starting concurrent uploads with teed streams...');
 
-  const [s3Result, lpResult] = await Promise.allSettled([uploadToS3(fileMessage, s3Stream), uploadToLP(fileMessage, Readable.toWeb(lpStream))]);
+  const [s3Result, lpResult] = await Promise.allSettled([
+    uploadToS3(fileMessage, s3WebStream),
+    uploadToLP(fileMessage, lpWebStream)
+  ]);
 
   let uploadResponse;
   if (s3Result.status === 'fulfilled') {
@@ -81,7 +81,6 @@ async function handleFileUpload(authResponse, fileMessage) {
     console.log('LendingPad upload successful');
   } else {
     console.error('LendingPad upload failed:', lpResult.reason);
-    // Don't throw - S3 succeeded
   }
 
   try {

@@ -27,7 +27,6 @@
   },
   "dependencies": {
     "aws-cdk-lib": "2.190.0",
-    "axios": "^1.9.0",
     "constructs": "^10.0.0",
     "mime-types": "^3.0.1",
     "undici": "^7.10.0"
