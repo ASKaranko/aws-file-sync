@@ -1,5 +1,7 @@
 import { Buffer } from 'node:buffer';
-import { FormData } from 'undici';
+import FormData from 'form-data';
+import nodeFetch from 'node-fetch';
+import { Readable } from 'stream';
 
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
@@ -63,10 +65,7 @@ async function handleFileUpload(authResponse, fileMessage) {
 
   console.log('Starting concurrent uploads with teed streams...');
 
-  const [s3Result, lpResult] = await Promise.allSettled([
-    uploadToS3(fileMessage, s3WebStream),
-    uploadToLP(fileMessage, lpWebStream)
-  ]);
+  const [s3Result, lpResult] = await Promise.allSettled([uploadToS3(fileMessage, s3WebStream), uploadToLP(fileMessage, lpWebStream)]);
 
   let uploadResponse = {
     uploadedToS3: false,
@@ -137,7 +136,9 @@ async function downloadFile(authToken, instanceURL, contentVersionId) {
   if (!response.ok) {
     throw new Error(`Failed to download file from Salesforce: ${response.status} ${response.statusText}`);
   }
-
+  
+  console.log('Response from Salesforce:', response.status, response.statusText);
+  
   return response.body;
 }
 
@@ -174,8 +175,6 @@ async function uploadToS3(fileMessage, stream) {
 
   const result = await upload.done();
 
-  console.log('File uploaded to S3 successfully:', result);
-
   return {
     location: result.Location,
     bucket: result.Bucket,
@@ -196,8 +195,7 @@ async function uploadToLP(fileMessage, stream) {
   const basicAuth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
 
   const contentType = mime.lookup(fileMessage.fileExtension) || 'application/pdf';
-  const fileBlob = new Blob([stream], { type: contentType });
-  console.log('File blob created from stream');
+  const nodeStream = Readable.fromWeb(stream);
 
   // Create FormData from undici
   const form = new FormData();
@@ -205,9 +203,10 @@ async function uploadToLP(fileMessage, stream) {
   form.append('contact', fileMessage.lendingPadContact);
   form.append('loan', fileMessage.lendingPadId);
   form.append('name', `${fileMessage.title}.${fileMessage.fileExtension}`);
-
-  // Append the stream directly (undici FormData supports streams)
-  form.append('file', fileBlob, `${fileMessage.title}.${fileMessage.fileExtension}`);
+  form.append('file', nodeStream, {
+    filename: `${fileMessage.title}.${fileMessage.fileExtension}`,
+    contentType: contentType
+  });
 
   // eslint-disable-next-line no-undef
   const url = `${process.env.LENDING_PAD_API_URL}/integrations/loans/documents/import`;
@@ -215,12 +214,12 @@ async function uploadToLP(fileMessage, stream) {
   console.log('LendingPad URL:', url);
   console.log('Using basic auth for user:', username);
   console.log('Form data prepared with streaming blob...');
-
-  // Use fetch with FormData (undici FormData works with fetch)
-  const response = await fetch(url, {
+  
+  const response = await nodeFetch(url, {
     method: 'POST',
     headers: {
-      Authorization: basicAuth
+      Authorization: basicAuth,
+      ...form.getHeaders()
     },
     body: form
   });
