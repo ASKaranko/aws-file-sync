@@ -17,7 +17,7 @@ export class FileSyncS3Stack extends Stack {
 
     // Follow AWS naming rules: lowercase, hyphen-separated, include account/region for uniqueness
     this.documentsBucket = new s3.Bucket(this, 'DocumentsBucket', {
-      bucketName: `${stage}-file-sync-documents-${this.account}-${this.region}`,
+      bucketName: `${stage}-file-sync-bucket-${this.account}-${this.region}`,
       versioned: true,
       publicReadAccess: false,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
