@@ -34,7 +34,7 @@ export class FileSyncStack extends Stack {
     const productionDomain = 'https://emortgage.my.salesforce.com';
     const salesforceFileSyncResultsAPI = `${stage === 'prod' ? productionDomain : sandboxDomain}/services/apexrest/file-sync/v1/results/`;
     const lendingPadAPI = 'https://api.lendingpad.com';
-    const secretStoreNameForSFExtClientAppCreds = `${stage}/salesforce/sf-ext-client-app-creds`;
+    const secretStoreNameForSFExtClientAppCreds = `${stage}/salesforce/sf-aws-file-sync-app-creds`;
     const secretStoreNameForBasicAuthLPCreds = 'prod/lending-pad/basic-auth-creds';
 
     new CfnOutput(this, 'Stage', {
