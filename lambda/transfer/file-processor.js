@@ -198,6 +198,9 @@ async function uploadToLP(fileMessage, stream) {
   const contentType = mime.lookup(fileMessage.fileExtension) || 'application/pdf';
   const nodeStream = Readable.fromWeb(stream);
 
+  console.log('LP company:', fileMessage.lendingPadCompany);
+  console.log('LP contact:', fileMessage.lendingPadContact);
+  
   // Create FormData from undici
   const form = new FormData();
   form.append('company', fileMessage.lendingPadCompany);
