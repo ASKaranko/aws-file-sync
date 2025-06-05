@@ -282,6 +282,7 @@ async function sendFileSyncResultToSF(authToken, uploadResponse, fileMessage) {
         s3Region: process.env.AWS_REGION,
         uploadedToS3: uploadResponse.uploadedToS3,
         uploadedToLP: uploadResponse.uploadedToLP,
+        lpFileId: uploadResponse.lpFileId ?? null,
         ...fileMessage // Spread the original file message for context
       }
     ])
