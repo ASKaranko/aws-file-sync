@@ -86,6 +86,7 @@ async function handleFileUpload(authResponse, fileMessage) {
 
   if (lpResult.status === 'fulfilled') {
     uploadResponse.uploadedToLP = true;
+    uploadResponse.lpFileId = lpResult.id ?? null;
     console.log('LendingPad upload successful');
   } else {
     console.error('LendingPad upload failed:', lpResult.reason);
